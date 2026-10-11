@@ -1,0 +1,43 @@
+Stage 1/4: Building production state (machines, jobs, materials queue)...
+Machines: 6
+Jobs: 18
+Total operations: 72
+Total processing time (sum of all durations): 804
+
+Stage 2/4: Solving baseline schedule with OR-Tools CP-SAT...
+  status=OPTIMAL  makespan=155  solve_time=0.009s  [validated OK]
+
+Stage 3/4: Simulating a real-time disruption...
+  Machine M2 DOWN from t=49 to t=81 (32 time units) — reason: unplanned mechanical breakdown
+Re-optimizing with CP-SAT (unfinished operations + machine-down constraint)...
+  status=OPTIMAL  new_makespan=188  solve_time=0.005s  [validated OK]
+  frozen (already completed) ops: 21  |  re-optimized ops: 51
+
+Stage 4/4: Generating explanation + Gantt charts...
+
+======================================================================
+ADAPTIVE RESCHEDULE — EXPLANATION LOG
+======================================================================
+Disruption detected: Machine M2 became unavailable from t=49 to t=81 (32 time units).
+Reason: unplanned mechanical breakdown.
+
+Result: overall completion time (makespan) increased from 155 to 188 (+33 time units).
+
+Jobs delayed: 10 / 18
+  - Job 4 (Panel): finishes 33 units later (was t=155, now t=188)
+  - Job 8 (Rotor): finishes 33 units later (was t=131, now t=164)
+  - Job 17 (Enclosure): finishes 33 units later (was t=148, now t=181)
+  - Job 9 (Sensor-Mount): finishes 29 units later (was t=150, now t=179)
+  - Job 2 (Housing): finishes 26 units later (was t=125, now t=151)
+  - Job 11 (Flange): finishes 25 units later (was t=118, now t=143)
+  - Job 7 (Frame): finishes 20 units later (was t=132, now t=152)
+  - Job 3 (Gear): finishes 17 units later (was t=106, now t=123)
+  - Job 12 (Shaft): finishes 16 units later (was t=102, now t=118)
+  - Job 15 (Manifold): finishes 11 units later (was t=117, now t=128)
+
+Jobs completely unaffected: 2 / 18 (their timing didn't need to change at all).
+======================================================================
+
+Gantt chart saved to: gantt_before_after.png
+
+TOTAL PIPELINE TIME: 0.54s
