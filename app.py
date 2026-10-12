@@ -185,8 +185,12 @@ for (const task of data.tasks) {{
   const label = element("text", {{
     x:xAt(task.before_start)+4, y:y+15, class:"task-label"
   }}, group);
-  label.textContent = task.duration*scale >= 37
-    ? `J${{task.job_id}} · O${{task.op_index+1}}` : "";
+  const barWidth = task.duration * scale;
+  const machineLabel = `M${{task.machine}}`;
+  const fullLabel = `${{machineLabel}} · J${{task.job_id}} · O${{task.op_index+1}}`;
+  label.textContent = barWidth >= fullLabel.length * 6 + 8
+    ? fullLabel
+    : barWidth >= machineLabel.length * 6 + 8 ? machineLabel : "";
   const tooltip = element("title", {{}}, group);
   tooltip.textContent = `${{task.job_name}} · operation ${{task.op_index+1}} · ` +
     `M${{task.machine}} · ${{task.duration}} time units`;
@@ -405,6 +409,7 @@ if run_schedule:
             "machine": result["disruption"].machine,
             "start": result["disruption"].start,
             "end": result["disruption"].end,
+            "reason": result["disruption"].reason,
         },
         "explanation": result["explanation"],
         "diffs": result["diffs"],
@@ -414,21 +419,33 @@ if run_schedule:
         "reoptimized_count": result["result"].reoptimized_count,
         "machine_count": len(result["machines"]),
         "job_count": len(result["jobs"]),
+        "summary": {
+            "delayed_jobs": sum(job["delta"] > 0 for job in result["diffs"].values()),
+            "reassigned_jobs": sum(job["machine_changed"] for job in result["diffs"].values()),
+            "unaffected_jobs": sum(
+                job["delta"] == 0 and not job["shifted_ops"]
+                for job in result["diffs"].values()
+            ),
+        },
     }
 
 schedule_result = st.session_state.get("schedule_result")
 if schedule_result:
     delta = schedule_result["makespan"] - schedule_result["base_makespan"]
-    delayed_jobs = sum(
-        job["delta"] > 0 for job in schedule_result["diffs"].values()
-    )
+    delayed_jobs = schedule_result["summary"]["delayed_jobs"]
 
     st.subheader("Schedule overview")
     disruption = schedule_result["disruption"]
+    summary_text = (
+        f"Recovery summary: {delayed_jobs} jobs delayed, "
+        f"{schedule_result['summary']['reassigned_jobs']} jobs re-routed, "
+        f"{schedule_result['summary']['unaffected_jobs']} jobs unaffected."
+    )
     st.caption(
         f"Machine M{disruption['machine']} disruption at t={disruption['start']} "
-        f"through t={disruption['end']}"
+        f"through t={disruption['end']} ({disruption['reason']})"
     )
+    st.info(summary_text)
     metric_columns = st.columns(5)
     metric_columns[0].metric("Jobs", schedule_result["job_count"])
     metric_columns[1].metric("Machines", schedule_result["machine_count"])

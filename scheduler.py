@@ -54,11 +54,23 @@ def solve_schedule(jobs, machines, horizon=None, time_limit_s=10.0,
     model = cp_model.CpModel()
 
     if horizon is None:
-        horizon = sum(op.duration for j in jobs for op in j.operations) + 1
-        # pad extra for breakdown windows pushing things out
+        total_work = sum(op.duration for job in jobs for op in job.operations)
+        max_job_work = max((sum(op.duration for op in job.operations) for job in jobs), default=0)
+        machine_work = {
+            machine: sum(
+                op.duration
+                for job in jobs
+                for op in job.operations
+                if op.machine == machine
+            )
+            for machine in machines
+        }
+        worst_machine_work = max(machine_work.values(), default=0)
+        horizon = max(total_work, max_job_work, worst_machine_work) + 1
+        # Add extra time for any disruption windows to keep the search space
+        # realistic without inflating it unnecessarily.
         for windows in forbidden_intervals.values():
-            for (s, e) in windows:
-                horizon += (e - s)
+            horizon += sum(e - s for (s, e) in windows)
 
     all_tasks = {}          # (job_id, op_index) -> (start_var, end_var, interval_var)
     machine_to_intervals = {m: [] for m in machines}

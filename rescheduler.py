@@ -4,9 +4,10 @@ Step 4: Adaptive rescheduler.
 When a disruption hits at time `disruption.start`, we don't throw away the
 whole plan and re-solve from scratch. We:
 
-  1. Freeze operations that have ALREADY STARTED (start < disruption.start) —
-     you can't un-run a machine that's already cutting metal. These become
-     `fixed_ops` with their original (start, end) baked in as constants.
+  1. Freeze any operation that had already started before the disruption,
+     except work that was mid-flight on the down machine; that operation is
+     interrupted and returned to the solver so it can be re-timed. This keeps
+     the already-executed portion of the schedule immutable.
   2. Keep the durations of everything else (not-yet-started operations) as-is.
   3. Add a `forbidden_intervals` constraint on the affected machine for the
      disruption window.
@@ -49,17 +50,18 @@ def reschedule(jobs, machines, baseline_ops, disruption, time_limit_s=10.0):
 
     fixed_ops = {}
     for key, so in baseline_by_key.items():
-        # An operation is frozen only if it had FULLY FINISHED before the
-        # disruption struck (so.end <= disruption.start). An operation that
-        # was still running on the disrupted machine when the breakdown hits
-        # (so.start < disruption.start < so.end, same machine) gets
-        # interrupted -- it must be released back to the solver so it can be
-        # restarted/re-timed after the machine comes back up. Operations
-        # mid-flight on OTHER machines are unaffected by this machine's
-        # breakdown, but for simplicity/robustness we still only hard-freeze
-        # completed ops; the solver will naturally reproduce their timing
-        # since nothing forces them to move.
-        if so.end <= disruption.start:
+        # History is immutable: if an operation had already started before the
+        # disruption, we lock its original (start, end) in place to preserve the
+        # work that was already underway.
+        #
+        # The one exception is an operation that was running on the machine
+        # that just went down; that work is interrupted and must be returned to
+        # the solver so it can be re-timed after the outage.
+        started_before_disruption = so.start < disruption.start
+        interrupted_on_down_machine = (
+            so.machine == disruption.machine and so.end > disruption.start
+        )
+        if started_before_disruption and not interrupted_on_down_machine:
             fixed_ops[key] = (so.start, so.end)
 
     forbidden_intervals = {disruption.machine: [(disruption.start, disruption.end)]}

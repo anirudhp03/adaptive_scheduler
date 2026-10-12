@@ -40,18 +40,9 @@ def simulate_disruption(scheduled_ops, machines, seed=None, machine=None,
     """
     Pick a machine and a breakdown window that overlaps real work on it.
 
-    Args:
-        scheduled_ops: the baseline ScheduledOp list (used to find a busy
-            window so the disruption actually bites).
-        machines: list of machine ids to choose from.
-        seed: RNG seed for reproducibility across demo runs.
-        machine: force a specific machine id (else picked randomly).
-        window_fraction: how much of the chosen op's duration (min) plus some
-            extra randomness the breakdown window should span, so it usually
-            clips 1-3 operations rather than the whole schedule.
-
-    Returns:
-        Disruption
+    The generator prefers busesier machines and anchors the disruption inside a
+    credible active window, so it typically affects at least one real operation
+    instead of a random idle slice.
     """
     rng = random.Random(seed)
 
@@ -59,21 +50,48 @@ def simulate_disruption(scheduled_ops, machines, seed=None, machine=None,
     for so in scheduled_ops:
         by_machine.setdefault(so.machine, []).append(so)
 
+    candidates = [m for m in machines if by_machine.get(m)]
     if machine is None:
-        candidates = [m for m in machines if by_machine.get(m)]
-        machine = rng.choice(candidates)
+        # Prefer the heaviest-loaded machine to make the impact meaningful.
+        machine = max(candidates, key=lambda m: (
+            sum(op.duration for op in by_machine[m]),
+            len(by_machine[m]),
+            -m,
+            rng.random(),
+        ))
 
     ops_on_machine = sorted(by_machine[machine], key=lambda o: o.start)
-    # avoid picking the very first op (nothing to disrupt yet) when possible
-    pick_from = ops_on_machine[1:] if len(ops_on_machine) > 1 else ops_on_machine
-    anchor = rng.choice(pick_from)
+    if not ops_on_machine:
+        raise ValueError(f"No scheduled operations found for machine M{machine}")
 
-    # breakdown starts a bit before/at the anchor op's start, lasts long
-    # enough to swallow the anchor op and often the next one too.
-    jitter = rng.randint(-2, 2)
+    # Use a non-trivial anchor in the middle of the machine's active window.
+    # This avoids degenerately picking the very first operation when a later
+    # machine bottleneck is a more realistic disruption point.
+    start_candidates = ops_on_machine[1:] if len(ops_on_machine) > 1 else ops_on_machine
+    anchor = max(
+        start_candidates,
+        key=lambda op: (op.duration, op.start, rng.random()),
+    )
+
+    # Bias the disruption window toward the anchor's busy period while still
+    # allowing slight randomness around it.
+    jitter = rng.randint(-2, 4)
     start = max(0, anchor.start + jitter)
-    span = max(6, int(anchor.duration * (1 + window_fraction)) + rng.randint(0, 10))
-    end = start + span
+    next_op = None
+    for op in ops_on_machine:
+        if op.start >= anchor.start and op is not anchor:
+            next_op = op
+            break
+    tied_duration = next_op.duration if next_op is not None else anchor.duration
+    span = max(
+        8,
+        int((anchor.duration + tied_duration) * (0.65 + window_fraction))
+        + rng.randint(0, 12),
+    )
+    latest_end = max(op.end for op in ops_on_machine)
+    end = min(latest_end, start + span)
+    if end <= start:
+        end = min(latest_end, start + 8)
 
     reason = rng.choice(REASONS)
     return Disruption(machine=machine, start=start, end=end, reason=reason)
